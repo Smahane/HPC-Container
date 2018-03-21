@@ -1,1 +1,17 @@
-theme: jekyll-theme-leap-day
+# Setup
+ title:        Intel HPC Containers
+ description:  Containers for various HCP applications
+ theme: jekyll-theme-leap-day
+
+# About/contact
+ author:
+ name:       Smahane Douyeb
+
+# Defaults
+  defaults:
+   scope:
+        path: ""
+        type: "pages"
+   values:
+        layout: "default"
+
