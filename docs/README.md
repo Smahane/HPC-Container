@@ -46,4 +46,5 @@ Singularity enables users to have full control of their environment. Singularity
 
    * Run your container
    
-        $ mpirun -hostfile nodes -n 4 -ppn 1 -genv OMP_NUM_THREADS=$NUM_THREADS ./$container.simg
+         $  mpirun -hostfile nodes -n 4 -ppn 1 -genv OMP_NUM_THREADS=$NUM_THREADS ./$container.simg
+        
