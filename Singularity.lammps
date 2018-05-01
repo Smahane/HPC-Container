@@ -1,0 +1,115 @@
+BootStrap: yum
+OSVersion: 7
+#MirrorURL: http://mirror.centos.org/centos-%{OSVERSION}/%{OSVERSION}/os/$basearch/
+MirrorURL: http://linux-ftp.jf.intel.com/pub/mirrors/centos/7.4.1708/os/$basearch/
+
+Include: yum
+
+%help
+Just write any helpful text here. Use this as:
+	singularity help container.simg
+
+%setup
+
+#Commands in the %setup section are executed on the host system outside of the container after the base OS has been installed
+
+# Get the codes and any dependencies
+
+        git clone https://github.com/lammps/lammps.git lammps
+        
+#Build your code 
+         
+        echo "Build LAMMPS binaries"
+        cd lammps/src/
+        make yes-asphere yes-class2 yes-kspace yes-manybody yes-misc yes-molecule
+        make yes-mpiio yes-opt yes-replica yes-rigid
+        make yes-user-omp yes-user-intel
+        export LMP_ROOT="../../../"
+        source /opt/intel/bin/compilervars.sh intel64 
+        make intel_cpu_intelmpi -j
+       
+ 
+        echo "Create data files"
+        workloads="$(pwd -P)/workloads"
+        mkdir -p $workloads 
+        export BENCH_DIR=$workloads
+        cp -rf ./USER-INTEL/TEST/in.* ./USER-INTEL/TEST/mW* $BENCH_DIR
+        cp -rf ../bench/Cu_u3.eam ../bench/data.rhodo $BENCH_DIR
+        cp -rf ../bench/POTENTIALS/Si.* $BENCH_DIR
+        cp -rf ../examples/airebo/data.airebo ../potentials/CH.airebo $BENCH_DIR
+
+        cd $BENCH_DIR 
+        files=`echo in.*`;
+        for file in $files
+        do 
+	      sed -i 's/\${root}.*\///g' $file
+        done
+
+        NUMCORES=20
+        OMP_NUM_THREADS=40
+        export LMP_BIN="/localdisk/sdouyeb/hpc-benchmarking-automation/lammps/src/lmp_intel_cpu_intelmpi"
+        export LMP_ARGS="-pk intel 0 -sf intel -screen none"
+       #mpirun -np 20 $LMP_BIN -in in.lc_generate_restart -log none $LMP_ARGS
+ 
+        #Create a work directory inside the container
+        WORKDIR="$SINGULARITY_ROOTFS/lammps"
+        mkdir -p $WORKDIR
+        if [ ! -x "$WORKDIR" ]; then
+           echo "failed to create tempdir directory..."
+           exit 1
+       fi
+
+        # Copy all the binaries and anything else needed to run your binaries
+        cp $LMP_BIN $WORKDIR
+        cp -rf $BENCH_DIR/* $WORKDIR
+        if [ "$(ls -A $WORKDIR)" ]; then
+           echo "Files are copies here $WORKDIR"
+        fi
+        ls $WORKDIR
+        chmod -R 777 $WORKDIR
+
+        exit 0
+
+%post
+
+#Commands in the %post section are executed within the container after the base OS has been installed at build time. 
+#This is where the meat of your setup will live, including making directories, and installing software and libraries
+#You cannot copy files from the host to your container in this section, but you can of course download with commands like git clone and wget and curl
+
+    export http_proxy="http://proxy-us.intel.com:911"		
+    export https_proxy="http://proxy-us.intel.com:912"
+	yum install wget -y
+       		
+	#installing runtime libs for virtual machines
+    rpm --import https://yum.repos.intel.com/2018/setup/RPM-GPG-KEY-intel-psxe-runtime-2018
+	rpm -Uhv https://yum.repos.intel.com/2018/setup/intel-psxe-runtime-2018-reposetup-1-0.noarch.rpm
+	yum install intel-psxe-runtime -y
+
+	
+%environment
+  source /opt/intel/psxe_runtime/linux/bin/psxevars.sh
+  source /opt/intel/psxe_runtime/linux/mpi/bin64/mpivars.sh
+  source /opt/intel/psxe_runtime/linux/mkl/bin/mklvars.sh intel64
+  export I_MPI_SHM_LMT=shm
+
+	
+%runscript 
+
+WORKDIR="$SINGULARITY_ROOTFS/lammps"
+cd $WORKDIR
+
+NUMCORES="@"
+if [ -z "$NUMCORES" ]; then
+        NUMCORES=40
+	echo "You didn't specify number of cores. So running with 40 cores"
+fi
+
+files=`echo in.intel.*`
+for file in $files
+do
+  name=`echo $file | sed 's/in\.intel\.//g'`
+  echo -n "Running: $name "
+  mpirun -np $NUMCORES ./lmp_intel_cpu_intelmpi -in $file -log none -pk intel 0 omp 2 -sf intel -v m 0.2 -screen /tmp/$name.log
+  grep 'Perform' /tmp/$name.log | awk 'BEGIN{n=1}n%2==0{c=NF-1; print "Performance:",$c,"timesteps/sec"}{n++}'
+done
+
